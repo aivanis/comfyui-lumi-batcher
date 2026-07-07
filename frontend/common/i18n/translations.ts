@@ -126,6 +126,11 @@ export const TranslationsDataDefault: TranslationsType = {
     'en-US': 'The result set has been packaged, click to download',
     'zh-CN': '结果集已打包完成，点击下载',
   },
+  download_the_params_lookup_table_which_maps_output_filenames_to_full_params: {
+    'en-US':
+      'Download the params lookup table (maps output filenames to full params)',
+    'zh-CN': '下载参数查找表（文件名与完整参数的对照表）',
+  },
   data_is_being_prepared__please_wait___: {
     'en-US': 'Data is being prepared, please wait...',
     'zh-CN': '正在准备数据，请稍后...',

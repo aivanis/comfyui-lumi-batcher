@@ -26,6 +26,7 @@ from lumi_batcher_service.constant.task import (
     StatusCounts,
     PackageInfo,
 )
+from lumi_batcher_service.constant.package import PackageStatus
 from lumi_batcher_service.common.file_path import (
     is_under_delete_white_dir,
     is_under_lumi_batcher,
@@ -54,6 +55,10 @@ from lumi_batcher_service.controller.task.update_workflow import (
 )
 from lumi_batcher_service.controller.output.nodes import process_output_nodes
 from lumi_batcher_service.controller.output.process import process_output
+from lumi_batcher_service.controller.output.params_sheet import (
+    build_params_sheet_rows,
+    rows_to_xlsx_bytes,
+)
 from lumi_batcher_service.common.delete_file import batch_delete_files
 from lumi_batcher_service.common.validate_prompt import handle_validate_prompt
 
@@ -452,6 +457,92 @@ class BatchToolsHandler:
                 return web.json_response(response)
             except Exception as e:
                 return web.json_response(getErrorResponse(e, "获取结果列表失败"))
+
+        @server.PromptServer.instance.routes.get(
+            getApiPath("/batch-task/params-sheet")
+        )
+        async def getBatchTaskParamsSheet(request):
+            try:
+                query = request.rel_url.query
+                batch_task_id = str(query.get("batch_task_id", ""))
+
+                def get_package_info(task: dict) -> dict:
+                    # batchTaskDao.get_task_by_id 返回的是原始行数据，
+                    # package_info 字段是未解析的 JSON 字符串
+                    raw = task.get("package_info") if task else None
+                    if isinstance(raw, dict):
+                        return raw
+                    if isinstance(raw, str) and raw:
+                        try:
+                            return json.loads(raw)
+                        except Exception:
+                            return {}
+                    return {}
+
+                download_dir = self.workSpaceManager.getDirectory(
+                    self.download_path
+                )
+
+                def get_archive_path(task: dict) -> str:
+                    archive_name = get_package_info(task).get("result", "")
+                    return (
+                        os.path.join(download_dir, archive_name)
+                        if archive_name
+                        else ""
+                    )
+
+                batch_task = self.batchTaskDao.get_task_by_id(batch_task_id)
+                task_name = (
+                    batch_task.get("name", "results") if batch_task else "results"
+                )
+                archive_path = get_archive_path(batch_task) if batch_task else ""
+
+                # 任务本身仍在执行/排队时不触发打包（此时压缩包下载按钮也是禁用的），
+                # 直接用当次已产出的结果生成查找表即可
+                task_status = batch_task.get("status") if batch_task else None
+                task_finished = task_status in [
+                    CommonTaskStatus.SUCCESS.value,
+                    CommonTaskStatus.PARTIAL_SUCCESS.value,
+                    CommonTaskStatus.CANCELLED.value,
+                ]
+                package_status = get_package_info(batch_task).get("status")
+
+                if (
+                    task_finished
+                    and not (archive_path and os.path.isfile(archive_path))
+                    and package_status != PackageStatus.PACKAGING.value
+                ):
+                    from lumi_batcher_service.controller.package.package import (
+                        execute_package_batch_task,
+                    )
+
+                    await execute_package_batch_task(self, batch_task_id)
+
+                    batch_task = self.batchTaskDao.get_task_by_id(batch_task_id)
+                    archive_path = get_archive_path(batch_task) if batch_task else ""
+
+                result = self.batchSubTaskDao.get_result(batch_task_id)
+                results = process_output(result)
+                rows = build_params_sheet_rows(results, download_dir, archive_path)
+
+                if not rows:
+                    return web.json_response(
+                        getErrorResponse("", "暂无可用于生成参数查找表的结果")
+                    )
+
+                xlsx_bytes = rows_to_xlsx_bytes(rows)
+
+                return web.Response(
+                    body=xlsx_bytes,
+                    headers={
+                        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        "Content-Disposition": (
+                            f'attachment; filename="{task_name}_params.xlsx"'
+                        ),
+                    },
+                )
+            except Exception as e:
+                return web.json_response(getErrorResponse(str(e), "生成参数查找表失败"))
 
         @server.PromptServer.instance.routes.get(getApiPath("/view-image"))
         async def view_image(request):

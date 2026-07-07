@@ -6,13 +6,15 @@ import { type ButtonProps, Message } from '@arco-design/web-react';
 import { debounce } from 'lodash';
 
 import { ReactComponent as IconDownload } from '../../static/icons/image-download.svg';
+import { ReactComponent as IconFileSheet } from '../../static/icons/file-sheet.svg';
 import { PackageStatusEnum, TaskStatusEnum } from '../task-list/constants';
 import { I18n } from '@common/i18n';
 import use2Ref from '@common/hooks/use-2-ref';
 import { getTaskDetail } from '@api/batch-task';
 import IconButtonTooltip from '@common/components/IconButtonTooltip';
+import Flex from '@common/components/Flex';
 import { processDownloadUrl } from '@common/utils/process-resource';
-import { batchDownloadZipByGetUrl } from '@api/download';
+import { batchDownloadZipByGetUrl, downloadParamsSheet } from '@api/download';
 import { sendBatchToolsDownloadResult } from '../../data/points';
 
 export default function ResultDownload({
@@ -45,6 +47,14 @@ export default function ResultDownload({
         console.error('下载失败', err);
         Message.error(I18n.t('download_failed', {}, '下载失败'));
       }
+    }, 500),
+    [taskId],
+  );
+
+  const onDownloadParamsSheet = useCallback(
+    debounce(() => {
+      // 独立于打包/压缩包流程，直接基于任务结果实时生成，历史任务同样可用
+      downloadParamsSheet(taskId);
     }, 500),
     [taskId],
   );
@@ -99,39 +109,51 @@ export default function ResultDownload({
   }
 
   return (
-    <IconButtonTooltip
-      icon={<IconDownload />}
-      onClick={onDownload}
-      size={size}
-      tooltip={{
-        content: {
-          [PackageStatusEnum.Waiting]: I18n.t(
-            'the_result_set_has_been_generated_and_is_to_be_packaged__please_wait_a_moment_',
-            {},
-            '结果集已生成，待打包处理，请稍等',
-          ),
-          [PackageStatusEnum.Packing]: I18n.t(
-            'the_result_set_is_being_packaged_and_processed__please_wait_a_moment_',
-            {},
-            '结果集已正在打包处理，请稍等',
-          ),
-          [PackageStatusEnum.Failed]: (
-            <>
-              {I18n.t(
-                'result_set_packaging_processing_failed',
-                {},
-                '结果集打包处理失败',
-              )}
-            </>
-          ),
-          [PackageStatusEnum.Succeed]: I18n.t(
-            'the_result_set_has_been_packaged__click_to_download_',
-            {},
-            '结果集已打包完成，点击下载',
-          ),
-        }[innerStatusInfo.packageStatus],
-      }}
-      disabled={innerStatusInfo.packageStatus !== PackageStatusEnum.Succeed}
-    />
+    <Flex align="center" gap={8}>
+      <IconButtonTooltip
+        icon={<IconDownload />}
+        onClick={onDownload}
+        size={size}
+        tooltip={{
+          content: {
+            [PackageStatusEnum.Waiting]: I18n.t(
+              'the_result_set_has_been_generated_and_is_to_be_packaged__please_wait_a_moment_',
+              {},
+              '结果集已生成，待打包处理，请稍等',
+            ),
+            [PackageStatusEnum.Packing]: I18n.t(
+              'the_result_set_is_being_packaged_and_processed__please_wait_a_moment_',
+              {},
+              '结果集已正在打包处理，请稍等',
+            ),
+            [PackageStatusEnum.Failed]: (
+              <>
+                {I18n.t(
+                  'result_set_packaging_processing_failed',
+                  {},
+                  '结果集打包处理失败',
+                )}
+              </>
+            ),
+            [PackageStatusEnum.Succeed]: I18n.t(
+              'the_result_set_has_been_packaged__click_to_download_',
+              {},
+              '结果集已打包完成，点击下载',
+            ),
+          }[innerStatusInfo.packageStatus],
+        }}
+        disabled={innerStatusInfo.packageStatus !== PackageStatusEnum.Succeed}
+      />
+      <IconButtonTooltip
+        icon={<IconFileSheet />}
+        onClick={onDownloadParamsSheet}
+        size={size}
+        tooltip={I18n.t(
+          'download_the_params_lookup_table_which_maps_output_filenames_to_full_params',
+          {},
+          '下载参数查找表（文件名与完整参数的对照表）',
+        )}
+      />
+    </Flex>
   );
 }

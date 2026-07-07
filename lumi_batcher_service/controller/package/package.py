@@ -12,8 +12,11 @@ from lumi_batcher_service.handler.batch_tools import BatchToolsHandler
 from lumi_batcher_service.controller.output.process import process_output
 from lumi_batcher_service.constant.package import PackageStatus
 from lumi_batcher_service.common.homeless import get_max_workers
-from lumi_batcher_service.constant.task import Category
 from lumi_batcher_service.common.file import file_processor, get_file_absolute_path
+from lumi_batcher_service.common.output_naming import (
+    build_output_file_name,
+    next_available_filename,
+)
 
 
 async def execute_package_batch_task(
@@ -123,19 +126,7 @@ def resolve_results(results: list[dict], dir: str):
         type = item.get("type")
         value = item.get("value")
 
-        configValues: list[str] = []
-        for config in paramsConfig:
-            if config.get("category", None) != Category.SYSTEM.value:
-                t = config.get("type", "")
-                if t == "group":
-                    for v in config.get("values", []):
-                        configValues.append(v.get("value", ""))
-                else:
-                    configValues.append(config.get("value", ""))
-
-        output_file_name = "_".join(str(x) for x in configValues)
-        # 处理文件名中的特殊字符，处理文件路径长度，文件名长度
-        output_file_name = file_processor.sanitize_filename(dir, output_file_name)
+        output_file_name = build_output_file_name(paramsConfig, dir)
 
         if type in ["image", "video", "audio"]:
             output_directory = folder_paths.get_output_directory()
@@ -153,44 +144,20 @@ def resolve_results(results: list[dict], dir: str):
                 # 获取文件后缀
                 _, file_extension = os.path.splitext(file_name)
 
-                # 新的完整路径
-                new_full_path = os.path.join(dir, file_name)
-
-                # 用目录路径+文件名作为唯一标识
-                file_name_unique_name = (
-                    f"{os.path.join(dir, output_file_name)}{file_extension}"
+                temp_full_name = next_available_filename(
+                    img_id_cache, output_file_name, file_extension
                 )
-
-                temp_full_name = f"{output_file_name}{file_extension}"
-
-                currentCount = img_id_cache.get(file_name_unique_name, 0)
-
-                if currentCount == 0:
-                    new_full_path = os.path.join(dir, output_file_name + file_extension)
-                else:
-                    new_full_path = os.path.join(
-                        dir, f"{output_file_name}({currentCount}){file_extension}"
-                    )
-
-                img_id_cache[file_name_unique_name] = currentCount + 1
+                new_full_path = os.path.join(dir, temp_full_name)
 
                 # 将原始图片或视频拷贝到临时目录
                 shutil.copy2(path, new_full_path)
         elif type == "text":
             # 处理文本类的结果
             file_extension = ".txt"
-            # 用于判断文件名是否重复时的缓存Key
-            file_name_unique_name = f"{output_file_name}{file_extension}"
-            temp_full_name = f"{output_file_name}{file_extension}"
 
-            currentCount = img_id_cache.get(file_name_unique_name, 0)
-
-            if currentCount == 0:
-                temp_full_name = f"{output_file_name}{file_extension}"
-            else:
-                temp_full_name = f"{output_file_name}({currentCount}){file_extension}"
-
-            img_id_cache[file_name_unique_name] = currentCount + 1
+            temp_full_name = next_available_filename(
+                img_id_cache, output_file_name, file_extension
+            )
 
             file_processor.save_json_array_to_txt(dir, temp_full_name, value)
 

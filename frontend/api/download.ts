@@ -18,6 +18,20 @@ export const batchDownloadZipByGetUrl = (url: string, file_name = 'result') => {
   document.body.removeChild(a);
 };
 
+/**
+ * 下载参数查找表（文件名 -> 完整参数），独立于打包/压缩包流程，
+ * 直接基于任务结果实时生成，对历史任务同样可用。
+ */
+export const downloadParamsSheet = (taskId: string) => {
+  const url = `${apiPrefix}/batch-task/params-sheet?batch_task_id=${taskId}`;
+  const a = document.createElement('a');
+  a.style.display = 'none';
+  a.href = url;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+};
+
 export const batchDownloadByFetchUrl = (url: string, file_name = 'result') => {
   fetch(url, {
     method: 'GET',
