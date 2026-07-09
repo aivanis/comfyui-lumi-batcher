@@ -16,6 +16,7 @@ export enum TranslateKeys {
   RESULT_DIFF_CHECK = 'result_diff_check',
   COPY_PARAMS = 'copy',
   CANCEL_TASK = 'cancel_task',
+  RETRY_TASK = 'retry_task',
   BATCH_TASK_TITLE = 'batch_task_title',
   PARAM_VALUES_COUNT_UNIT = 'param_values_count_unit',
   FINAL_RESULT_COUNT = 'final_result_count',

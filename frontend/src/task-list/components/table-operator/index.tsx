@@ -7,6 +7,7 @@ import { useShallow } from 'zustand/react/shallow';
 
 import { ReactComponent as IconCancel } from '@static/icons/backward.svg';
 import { ReactComponent as IconCopy } from '@static/icons/copy.svg';
+import { ReactComponent as IconRetry } from '@static/icons/refresh.svg';
 import { ReactComponent as IconLayout } from '@static/icons/layout-alt.svg';
 import { ReactComponent as IconDelete } from '@static/icons/task-list/delete-icon.svg';
 
@@ -32,7 +33,7 @@ export default function TableOperator({
   const statusType = task.status;
   const handler = useHandler(task);
 
-  let [showCancelBtn, showResultDiffBtn, showCopyBtn] = [] as (
+  let [showCancelBtn, showResultDiffBtn, showCopyBtn, showRetryBtn] = [] as (
     | boolean
     | undefined
   )[];
@@ -46,9 +47,15 @@ export default function TableOperator({
       showResultDiffBtn = true;
       break;
     case TaskStatusEnum.Canceled:
-    case TaskStatusEnum.Succeed:
     case TaskStatusEnum.PartiallySucceeded:
       showResultDiffBtn = true;
+      showRetryBtn = true;
+      break;
+    case TaskStatusEnum.Succeed:
+      showResultDiffBtn = true;
+      break;
+    case TaskStatusEnum.Failed:
+      showRetryBtn = true;
       break;
     case TaskStatusEnum.Dirty:
       showResultDiffBtn = true;
@@ -70,6 +77,11 @@ export default function TableOperator({
     [showCopyBtn, task.scene, uiConfig.showCopy],
   );
 
+  const showRetryOperation = useMemo(
+    () => showRetryBtn && task.scene !== BatchTaskSceneEnum.LocalTask,
+    [showRetryBtn, task.scene],
+  );
+
   return (
     <Flex align="center" gap={8}>
       {showCancelOperation ? (
@@ -84,6 +96,25 @@ export default function TableOperator({
             loading={handler.cancelLoading}
             icon={<IconCancel />}
             tooltip={languageUtils.getText(TranslateKeys.CANCEL_TASK)}
+          />
+        </Popconfirm>
+      ) : null}
+      {showRetryOperation ? (
+        <Popconfirm
+          title={I18n.t(
+            'confirm_to_retry_the_task?',
+            {},
+            '确认重试未完成的子任务吗？',
+          )}
+          onOk={async () => {
+            await handler.restart();
+            refresh();
+          }}
+        >
+          <IconButtonTooltip
+            loading={handler.retryLoading}
+            icon={<IconRetry />}
+            tooltip={languageUtils.getText(TranslateKeys.RETRY_TASK)}
           />
         </Popconfirm>
       ) : null}

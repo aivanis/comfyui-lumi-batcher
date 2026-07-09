@@ -6,7 +6,7 @@ import { Message } from '@arco-design/web-react';
 
 import { I18n } from '@common/i18n';
 import { ParamsConfigType } from '@common/type/batch-task';
-import { cancelTask, deleteTask, TaskInfo } from '@api/batch-task';
+import { cancelTask, deleteTask, retryTask, TaskInfo } from '@api/batch-task';
 import { useContainerStore } from '@common/state/container';
 import { useResultViewStore } from '@src/result-view/store';
 import { useCreatorStore } from '@src/create-task/store';
@@ -26,6 +26,7 @@ export default function useHandler(task: TaskInfo) {
   const { copy: copyTask } = useCreatorStore();
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [cancelLoading, setCancelLoading] = useState(false);
+  const [retryLoading, setRetryLoading] = useState(false);
 
   return useMemo(() => {
     const { id, name, status } = task;
@@ -69,8 +70,22 @@ export default function useHandler(task: TaskInfo) {
           setDeleteLoading(false);
         }
       },
-      restart() {
-        Message.error(I18n.t('pending', {}, '待处理'));
+      /**
+       * @description 重试任务中未成功的子任务
+       */
+      async restart() {
+        try {
+          setRetryLoading(true);
+          const res = await retryTask(id);
+          if (res?.code !== 200) {
+            throw new Error(res?.message);
+          }
+          Message.success(I18n.t('retry_task_successfully', {}, '重试任务成功'));
+        } catch (error) {
+          Message.error(I18n.t('retry_task_failed', {}, '重试任务失败'));
+        } finally {
+          setRetryLoading(false);
+        }
       },
       diffResult() {
         sendBatchToolsPreviewResult();
@@ -104,6 +119,7 @@ export default function useHandler(task: TaskInfo) {
       },
       deleteLoading,
       cancelLoading,
+      retryLoading,
     };
-  }, [task, deleteLoading, cancelLoading]);
+  }, [task, deleteLoading, cancelLoading, retryLoading]);
 }

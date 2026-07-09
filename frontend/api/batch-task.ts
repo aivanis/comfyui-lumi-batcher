@@ -5,6 +5,7 @@ import { ParamsConfigType } from '@common/type/batch-task';
 import requestClient, { apiPrefix } from './request-instance';
 import { PackageStatusEnum, TaskStatusEnum } from '@src/task-list/constants';
 import { BatchTaskSceneEnum } from '@common/constant/batch';
+import { getCurrentApiKey, getCurrentToken } from '@common/utils/auth';
 
 export interface CreateBatchTaskRequest {
   client_id: string;
@@ -93,6 +94,19 @@ export async function getTaskList(
 export async function cancelTask(id: string) {
   const res = await requestClient.post<any>(`${apiPrefix}/batch-task/cancel`, {
     batch_task_id: id,
+  });
+  return res.data;
+}
+
+/**
+ * @description 重试任务中未成功的子任务
+ */
+export async function retryTask(id: string) {
+  const res = await requestClient.post<any>(`${apiPrefix}/batch-task/retry`, {
+    batch_task_id: id,
+    client_id: sessionStorage.getItem('clientId') ?? '',
+    auth_token_comfy_org: getCurrentToken(),
+    api_key_comfy_org: getCurrentApiKey(),
   });
   return res.data;
 }

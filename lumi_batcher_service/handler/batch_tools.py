@@ -53,6 +53,9 @@ from lumi_batcher_service.controller.task.update_prompt import (
 from lumi_batcher_service.controller.task.update_workflow import (
     update_workflow,
 )
+from lumi_batcher_service.controller.task.recover_workflow import (
+    recover_workflow_from_results,
+)
 from lumi_batcher_service.controller.output.nodes import process_output_nodes
 from lumi_batcher_service.controller.output.process import process_output
 from lumi_batcher_service.controller.output.params_sheet import (
@@ -642,6 +645,169 @@ class BatchToolsHandler:
                 return web.json_response(response)
             except Exception as e:
                 return web.json_response(getErrorResponse(e, "取消任务失败"))
+
+        @server.PromptServer.instance.routes.post(getApiPath("/batch-task/retry"))
+        async def retryTask(request):
+            try:
+                resp_code = 200
+                json_data = await request.json()
+                # 解析请求参数
+                batch_task_id = json_data["batch_task_id"]
+                client_id = json_data.get("client_id", "")
+                auth_token_comfy_org = json_data.get("auth_token_comfy_org", "")
+                api_key_comfy_org = json_data.get("api_key_comfy_org", "")
+
+                batch_task = self.batchTaskDao.get_task_by_id(batch_task_id)
+
+                if batch_task is None:
+                    return web.json_response(
+                        getErrorResponse("", "重试任务失败, 任务Id不存在")
+                    )
+
+                # 仅允许对已结束的任务发起重试
+                if batch_task.get("status") not in [
+                    CommonTaskStatus.FAILED.value,
+                    CommonTaskStatus.PARTIAL_SUCCESS.value,
+                    CommonTaskStatus.CANCELLED.value,
+                ]:
+                    return web.json_response(
+                        getErrorResponse("", "重试任务失败, 当前任务状态不支持重试")
+                    )
+
+                extra = json.loads(batch_task.get("extra", "{}"))
+                base_prompt = extra.get("prompt", {})
+
+                if not base_prompt:
+                    return web.json_response(
+                        getErrorResponse("", "重试任务失败, 缺少原始工作流数据")
+                    )
+
+                params_config = json.loads(batch_task.get("params_config", "[]"))
+
+                sub_tasks = self.batchSubTaskDao.get_retryable_tasks(batch_task_id)
+
+                if not sub_tasks:
+                    return web.json_response(
+                        getErrorResponse("", "重试任务失败, 没有可重试的子任务")
+                    )
+
+                loop = asyncio.get_running_loop()
+                errorMessages = []
+
+                # 数据库中没有存储原始workflow，尝试从已成功子任务的PNG结果中恢复，
+                # 用于重试任务结果的元数据嵌入
+                base_workflow = await loop.run_in_executor(
+                    None,
+                    recover_workflow_from_results,
+                    self.batchSubTaskDao.get_result(batch_task_id),
+                    folder_paths.get_output_directory(),
+                )
+
+                async def retry_item(sub_task):
+                    sub_task_id = sub_task["id"]
+                    params_combine = json.loads(sub_task.get("params_config") or "[]")
+
+                    # 基于原始prompt重新应用当前子任务的参数组合
+                    def build_prompt():
+                        temp_prompt = copy.deepcopy(base_prompt)
+                        simple_config = generateSimpleConfigDefault(params_config)
+                        temp_workflow = (
+                            copy.deepcopy(base_workflow) if base_workflow else None
+                        )
+                        for config_item in params_combine:
+                            updatePrompt(temp_prompt, config_item, simple_config)
+                            if temp_workflow is not None:
+                                update_workflow(temp_workflow, temp_prompt, config_item)
+                        return temp_prompt, temp_workflow, simple_config
+
+                    try:
+                        temp_prompt, temp_workflow, simple_config = (
+                            await loop.run_in_executor(None, build_prompt)
+                        )
+
+                        extra_data = {
+                            "auth_token_comfy_org": auth_token_comfy_org,
+                            "api_key_comfy_org": api_key_comfy_org,
+                        }
+
+                        if temp_workflow is not None:
+                            extra_data["extra_pnginfo"] = {
+                                "workflow": {
+                                    **temp_workflow,
+                                    "ba_batch_tools_prompt_combine": params_combine,
+                                    "ba_batch_tools_params_config": simple_config,
+                                }
+                            }
+
+                        queue_response = await self.post_prompt(
+                            {
+                                "client_id": client_id,
+                                "prompt": temp_prompt,
+                                "extra_data": extra_data,
+                            }
+                        )
+
+                        if "error" in queue_response:
+                            error = queue_response.get("error")
+                            self.batchSubTaskDao.update_property(
+                                sub_task_id, "reason", json.dumps(error)
+                            )
+                            errorMessages.append(error)
+                            return False
+
+                        self.batchSubTaskDao.reset_for_retry(
+                            sub_task_id, queue_response["prompt_id"]
+                        )
+                        return True
+                    except Exception as e:
+                        errorMessages.append(str(e))
+                        traceback.print_exc()
+                        return False
+
+                results = await asyncio.gather(
+                    *[retry_item(sub_task) for sub_task in sub_tasks]
+                )
+                retried_count = sum(1 for r in results if r)
+
+                if retried_count == 0:
+                    return web.json_response(
+                        getErrorResponse("", "重试任务失败, 子任务重新入队失败")
+                    )
+
+                # 依据子任务表重新计算任务状态计数
+                counts = self.batchSubTaskDao.get_status_counts(batch_task_id)
+                statusCounts = StatusCounts(
+                    pending=counts.get(SubTaskStatus.PENDING.value, 0)
+                    + counts.get(SubTaskStatus.RUNNING.value, 0),
+                    success=counts.get(SubTaskStatus.SUCCESS.value, 0),
+                    failed=counts.get(SubTaskStatus.FAILED.value, 0),
+                    cancelled=counts.get(SubTaskStatus.CANCELLED.value, 0),
+                )
+
+                self.batchTaskDao.update_property(
+                    batch_task_id, "status_counts", statusCounts.to_json()
+                )
+                self.batchTaskDao.update_property(
+                    batch_task_id, "status", CommonTaskStatus.WAITING.value
+                )
+                self.batchTaskDao.update_property(
+                    batch_task_id, "messages", json.dumps(errorMessages)
+                )
+                # 重置打包信息，任务完成后会重新生成压缩包
+                self.batchTaskDao.update_property(
+                    batch_task_id, "package_info", PackageInfo().to_json()
+                )
+
+                return web.json_response(
+                    {
+                        "code": resp_code,
+                        "message": "重试任务成功",
+                        "data": {"retried_count": retried_count},
+                    }
+                )
+            except Exception as e:
+                traceback.print_exc()
+                return web.json_response(getErrorResponse(e, "重试任务失败"))
 
         @server.PromptServer.instance.routes.post(getApiPath("/batch-task/delete"))
         async def deleteTask(request):

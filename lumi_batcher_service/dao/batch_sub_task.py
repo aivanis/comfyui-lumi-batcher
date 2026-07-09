@@ -222,6 +222,52 @@ class BatchSubTaskDao:
             except sqlite3.Error as e:
                 print(f"An error occurred on update sub task status: {e.args[0]}")
 
+    def get_retryable_tasks(self, batch_task_id: str):
+        with sqlite3.connect(self.db_file) as conn:
+            try:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+
+                sql = read_sql_file(os.path.join(self.sql_dir, "get_retryable.sql"))
+                cursor.execute(sql, (batch_task_id,))
+                # 获取查询结果
+                rows = cursor.fetchall()
+
+                return [dict(row) for row in rows]
+            except sqlite3.Error as e:
+                print(f"An error occurred on get retryable sub tasks: {e.args[0]}")
+                return []
+
+    def reset_for_retry(self, sub_task_id: str, new_prompt_id: str):
+        with sqlite3.connect(self.db_file) as conn:
+            try:
+                cursor = conn.cursor()
+
+                sql = read_sql_file(os.path.join(self.sql_dir, "reset_for_retry.sql"))
+                now = int(time.time()) * 1000
+                cursor.execute(sql, (new_prompt_id, new_prompt_id, now, sub_task_id))
+
+                conn.commit()
+                return True
+            except sqlite3.Error as e:
+                print(f"An error occurred on reset sub task for retry: {e.args[0]}")
+                return False
+
+    def get_status_counts(self, batch_task_id: str):
+        with sqlite3.connect(self.db_file) as conn:
+            try:
+                cursor = conn.cursor()
+
+                sql = read_sql_file(os.path.join(self.sql_dir, "get_status_counts.sql"))
+                cursor.execute(sql, (batch_task_id,))
+                # 获取查询结果
+                rows = cursor.fetchall()
+
+                return {row[0]: row[1] for row in rows}
+            except sqlite3.Error as e:
+                print(f"An error occurred on get sub task status counts: {e.args[0]}")
+                return {}
+
     def get_task_by_prompt_id(self, prompt_id: str):
         with sqlite3.connect(self.db_file) as conn:
             try:

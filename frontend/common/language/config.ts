@@ -72,6 +72,10 @@ export const languageConfigMap: Record<
     [LanguagesEnum.ZH]: '取消任务',
     [LanguagesEnum.EN]: 'cancel',
   },
+  [TranslateKeys.RETRY_TASK]: {
+    [LanguagesEnum.ZH]: '重试未完成子任务',
+    [LanguagesEnum.EN]: 'retry',
+  },
   [TranslateKeys.BATCH_TASK_TITLE]: {
     [LanguagesEnum.ZH]: '新建任务，为任务取个名字吧',
     [LanguagesEnum.EN]: 'Create a new task and give it a name',
