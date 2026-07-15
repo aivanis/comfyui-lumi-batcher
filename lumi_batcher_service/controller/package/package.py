@@ -122,54 +122,54 @@ def resolve_results(results: list[dict], dir: str):
 
     print(f"------max workers------: {max_workers}")
 
-    def resolvePath(item: dict, paramsConfig: list[dict]):
-        type = item.get("type")
-        value = item.get("value")
+    # 文件名必须在单线程里按数据库顺序依次分配：img_id_cache 无锁，并发分配
+    # 会让去重序号 (n) 随线程调度随机分布（参数查找表无法与包内文件对应），
+    # 且两个线程可能拿到同一个文件名导致互相覆盖、丢失结果
+    copy_jobs: list[tuple[str, str]] = []
+    text_jobs: list[tuple[str, str]] = []
 
-        output_file_name = build_output_file_name(paramsConfig, dir)
+    for item in results:
+        params_config = json.loads(item.get("ParamsConfig", "[]"))
+        output_file_name = build_output_file_name(params_config, dir)
 
-        if type in ["image", "video", "audio"]:
-            output_directory = folder_paths.get_output_directory()
-            path = os.path.join(output_directory, value)
+        for rl in item.get("list", []):
+            type = rl.get("type")
+            value = rl.get("value")
 
-            if not os.path.isfile(path):
-                new_file_path = get_file_absolute_path(path)
-                if os.path.exists(new_file_path):
-                    path = new_file_path
-            if not os.path.isfile(path):
-                print(f"File not found: {path}")
-            else:
-                # 获取文件名
-                file_name = os.path.basename(path)
+            if type in ["image", "video", "audio"]:
+                output_directory = folder_paths.get_output_directory()
+                path = os.path.join(output_directory, value)
+
+                if not os.path.isfile(path):
+                    new_file_path = get_file_absolute_path(path)
+                    if os.path.exists(new_file_path):
+                        path = new_file_path
+                if not os.path.isfile(path):
+                    print(f"File not found: {path}")
+                    continue
+
                 # 获取文件后缀
-                _, file_extension = os.path.splitext(file_name)
+                _, file_extension = os.path.splitext(os.path.basename(path))
 
                 temp_full_name = next_available_filename(
                     img_id_cache, output_file_name, file_extension
                 )
-                new_full_path = os.path.join(dir, temp_full_name)
-
-                # 将原始图片或视频拷贝到临时目录
-                shutil.copy2(path, new_full_path)
-        elif type == "text":
-            # 处理文本类的结果
-            file_extension = ".txt"
-
-            temp_full_name = next_available_filename(
-                img_id_cache, output_file_name, file_extension
-            )
-
-            file_processor.save_json_array_to_txt(dir, temp_full_name, value)
+                copy_jobs.append((path, os.path.join(dir, temp_full_name)))
+            elif type == "text":
+                # 处理文本类的结果
+                temp_full_name = next_available_filename(
+                    img_id_cache, output_file_name, ".txt"
+                )
+                text_jobs.append((temp_full_name, value))
 
     # 使用 ThreadPoolExecutor 并行复制文件到临时文件夹
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = []
-        for item in results:
-            params_config = json.loads(item.get("ParamsConfig", "[]"))
-
-            results_list = item.get("list", [])
-            for rl in results_list:
-                futures.append(executor.submit(resolvePath, rl, params_config))
+        futures = [
+            executor.submit(shutil.copy2, src, dst) for src, dst in copy_jobs
+        ] + [
+            executor.submit(file_processor.save_json_array_to_txt, dir, name, value)
+            for name, value in text_jobs
+        ]
         for future in as_completed(futures):
             # 确保所有任务完成
             future.result()
