@@ -175,7 +175,11 @@ class BatchToolsHandler:
                     packageInfo.to_json(),
                     json.dumps(errorMessages),
                     json.dumps(
-                        {"output_nodes": process_output_nodes(prompt), "prompt": prompt}
+                        {
+                            "output_nodes": process_output_nodes(prompt),
+                            "prompt": prompt,
+                            "workflow": workflow,
+                        }
                     ),
                 )
 
@@ -694,14 +698,16 @@ class BatchToolsHandler:
                 loop = asyncio.get_running_loop()
                 errorMessages = []
 
-                # 数据库中没有存储原始workflow，尝试从已成功子任务的PNG结果中恢复，
-                # 用于重试任务结果的元数据嵌入
-                base_workflow = await loop.run_in_executor(
-                    None,
-                    recover_workflow_from_results,
-                    self.batchSubTaskDao.get_result(batch_task_id),
-                    folder_paths.get_output_directory(),
-                )
+                # 优先使用创建任务时存储的原始workflow（含画布布局信息）；
+                # 旧任务数据库中没有存储，回退到从已成功子任务的PNG结果中恢复
+                base_workflow = extra.get("workflow")
+                if not base_workflow:
+                    base_workflow = await loop.run_in_executor(
+                        None,
+                        recover_workflow_from_results,
+                        self.batchSubTaskDao.get_result(batch_task_id),
+                        folder_paths.get_output_directory(),
+                    )
 
                 async def retry_item(sub_task):
                     sub_task_id = sub_task["id"]
