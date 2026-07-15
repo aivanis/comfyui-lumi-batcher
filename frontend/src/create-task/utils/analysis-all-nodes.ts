@@ -24,9 +24,15 @@ export const analysisAllNodes = () =>
         });
       });
 
+      // 节点在画布上的标题（用户可能重命名过），与类型不同时一并展示
+      const nodeTitle = window.app?.graph.getNodeById(id)?.title;
+
       allNodesOptions.push({
         id,
-        label: `#${id}: ${class_type}`,
+        label:
+          nodeTitle && nodeTitle !== class_type
+            ? `#${id}: ${nodeTitle} (${class_type})`
+            : `#${id}: ${class_type}`,
         paramsList,
       });
     });

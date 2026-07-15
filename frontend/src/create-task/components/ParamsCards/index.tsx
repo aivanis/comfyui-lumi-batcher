@@ -27,8 +27,11 @@ export const ParamsCards = () => {
   const ParamsLabelContent = (props: { info: ParamsConfigTypeItem }) => {
     const { info } = props;
     const { nodeId, internal_name } = info;
+    const nodeTitle = window.app?.graph.getNodeById(nodeId as number)?.title;
     return (
-      <span className="params-card-value">{`#${nodeId}/${internal_name}`}</span>
+      <span className="params-card-value">{`#${nodeId}${
+        nodeTitle ? ` ${nodeTitle}` : ''
+      }/${internal_name}`}</span>
     );
   };
 
