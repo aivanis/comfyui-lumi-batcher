@@ -1,0 +1,11 @@
+.params-tree-leaf {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+
+  // 仅作收藏标识，不可交互
+  .params-tree-leaf-star {
+    font-size: 12px;
+    color: rgb(var(--gold-6));
+  }
+}

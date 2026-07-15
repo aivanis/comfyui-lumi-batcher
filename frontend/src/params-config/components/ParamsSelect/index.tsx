@@ -11,26 +11,19 @@ import { I18n } from '@common/i18n';
 import { languageUtils, TranslateKeys } from '@common/language';
 import { ParamsConfigTypeItem } from '@common/type/batch-task';
 import { uuid } from '@common/utils/uuid';
-
-const TreeNode = TreeSelect.Node;
+import { useParamsTreeNodes } from '@src/create-task/components/ParamsTreeNodes';
 
 export const ParamsSelect = () => {
   const [maxHeight, setMaxHeight] = useState(300);
-  const [
-    currentParamsConfig,
-    paramsConfig,
-    allNodesOptions,
-    editIndex,
-    updateCurrentConfig,
-  ] = useCreatorStore(
-    useShallow((state) => [
-      state.currentParamsConfig,
-      state.paramsConfig,
-      state.allNodesOptions,
-      state.editIndex,
-      state.updateCurrentConfig,
-    ]),
-  );
+  const [currentParamsConfig, paramsConfig, editIndex, updateCurrentConfig] =
+    useCreatorStore(
+      useShallow((state) => [
+        state.currentParamsConfig,
+        state.paramsConfig,
+        state.editIndex,
+        state.updateCurrentConfig,
+      ]),
+    );
   const { type } = currentParamsConfig;
   const [treeValue, setTreeValue] = useState<string | string[]>('');
 
@@ -91,6 +84,9 @@ export const ParamsSelect = () => {
     [paramsConfig],
   );
 
+  const { treeNodes, filterTreeNode, renderFormat } =
+    useParamsTreeNodes(getDisabled);
+
   return (
     <TreeSelect
       className="tree-select-wrapper"
@@ -105,9 +101,8 @@ export const ParamsSelect = () => {
       }}
       size="small"
       showSearch
-      filterTreeNode={(inputText, node) =>
-        node.props.title.toLowerCase().indexOf(inputText.toLowerCase()) > -1
-      }
+      filterTreeNode={filterTreeNode}
+      renderFormat={renderFormat}
       placeholder={
         type === 'group'
           ? I18n.t(
@@ -160,33 +155,7 @@ export const ParamsSelect = () => {
         }
       }}
     >
-      {allNodesOptions.map((parent) => {
-        const { paramsList, id, label } = parent;
-        const showParamsList = paramsList.filter((p) => !p.isLinked);
-        if (!showParamsList?.length) {
-          return null;
-        }
-        return (
-          <TreeNode key={id} title={label} disabled>
-            {showParamsList.map((node) => {
-              const { label: nodeLabel } = node;
-
-              return (
-                <TreeNode
-                  key={JSON.stringify({
-                    id,
-                    nodeLabel,
-                    // nodeValue,
-                  })}
-                  title={nodeLabel}
-                  isLeaf
-                  disabled={getDisabled(id, nodeLabel)}
-                />
-              );
-            })}
-          </TreeNode>
-        );
-      })}
+      {treeNodes}
     </TreeSelect>
   );
 };

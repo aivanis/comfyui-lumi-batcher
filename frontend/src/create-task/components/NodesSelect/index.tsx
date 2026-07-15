@@ -9,7 +9,7 @@ import './index.scss';
 import { useCreatorStore } from '@src/create-task/store';
 import { I18n } from '@common/i18n';
 import { languageUtils, TranslateKeys } from '@common/language';
-const TreeNode = TreeSelect.Node;
+import { useParamsTreeNodes } from '@src/create-task/components/ParamsTreeNodes';
 
 export interface NodesSelectSharedValueType {
   id: string;
@@ -25,16 +25,10 @@ export const NodesSelect = (props: {
 }) => {
   const { addBefore, defaultValue, onSelect, nodesSelectSharedMap } = props;
   const [maxHeight, setMaxHeight] = useState(300);
-  const [
-    currentParamsConfig,
-    paramsConfig,
-    allNodesOptions, // 现在直接从store获取
-    editIndex,
-  ] = useCreatorStore(
+  const [currentParamsConfig, paramsConfig, editIndex] = useCreatorStore(
     useShallow((state) => [
       state.currentParamsConfig,
       state.paramsConfig,
-      state.allNodesOptions,
       state.editIndex,
     ]),
   );
@@ -121,6 +115,9 @@ export const NodesSelect = (props: {
     [paramsConfig, nodesSelectSharedMap],
   );
 
+  const { treeNodes, filterTreeNode, renderFormat } =
+    useParamsTreeNodes(getDisabled);
+
   return (
     <TreeSelect
       addBefore={addBefore}
@@ -135,9 +132,8 @@ export const NodesSelect = (props: {
         maxHeight: 'unset',
       }}
       showSearch
-      filterTreeNode={(inputText, node) =>
-        node.props.title.toLowerCase().indexOf(inputText.toLowerCase()) > -1
-      }
+      filterTreeNode={filterTreeNode}
+      renderFormat={renderFormat}
       placeholder={
         type === 'group'
           ? I18n.t(
@@ -157,34 +153,7 @@ export const NodesSelect = (props: {
         onSelect(value);
       }}
     >
-      {allNodesOptions.map((parent) => {
-        const { paramsList, id, label } = parent;
-        const showParamsList = paramsList.filter((p) => !p.isLinked);
-        if (!showParamsList?.length) {
-          return null;
-        }
-        return (
-          // #9: SaveImage 节点默认不支持选中
-          <TreeNode key={id} title={label} disabled>
-            {showParamsList.map((node) => {
-              const { label: nodeLabel } = node;
-
-              return (
-                <TreeNode
-                  key={JSON.stringify({
-                    id,
-                    nodeLabel,
-                    // nodeValue,
-                  })}
-                  title={nodeLabel}
-                  isLeaf
-                  disabled={getDisabled(id, nodeLabel)}
-                />
-              );
-            })}
-          </TreeNode>
-        );
-      })}
+      {treeNodes}
     </TreeSelect>
   );
 };
