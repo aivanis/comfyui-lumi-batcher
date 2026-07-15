@@ -3,6 +3,7 @@
 import io
 import json
 import os
+import re
 import tarfile
 
 from openpyxl import Workbook
@@ -11,6 +12,9 @@ from lumi_batcher_service.common.output_naming import (
     build_output_file_name,
     next_available_filename,
 )
+
+# 拆分 "名称(2)" 形式的去重后缀
+_DEDUP_SUFFIX_RE = re.compile(r"^(?P<base>.*?)(?:\((?P<num>\d+)\))?$")
 
 
 def read_packaged_filenames(archive_path: str) -> list[str] | None:
@@ -30,6 +34,42 @@ def read_packaged_filenames(archive_path: str) -> list[str] | None:
             ]
     except Exception:
         return None
+
+
+def apply_packaged_filenames(
+    rows: list[dict], row_keys: list[tuple], packaged_filenames: list[str]
+):
+    """
+    把包内真实文件名分配给对应的参数行。
+
+    不能按位置配对：tar 包内文件按字母序存储，而行是数据库顺序，两者无关。
+    这里按名称结构匹配——包内文件名去掉 (n) 去重后缀和扩展名后，主体一定
+    等于（或因路径长度截断而是）该行未截断名称的前缀。同名文件按 (n) 序号
+    依次分配给同名的行。未匹配到的行保留重新计算出的文件名。
+    """
+    # (主体, 扩展名) -> [(去重序号, 包内完整文件名)]
+    groups: dict = {}
+    for name in packaged_filenames:
+        stem, ext = os.path.splitext(name)
+        m = _DEDUP_SUFFIX_RE.match(stem)
+        base = m.group("base")
+        num = int(m.group("num") or 0)
+        groups.setdefault((base, ext), []).append((num, name))
+    for group in groups.values():
+        group.sort()
+
+    for row, (row_base, row_ext) in zip(rows, row_keys):
+        candidates = [
+            key
+            for key, group in groups.items()
+            if key[1] == row_ext and row_base.startswith(key[0]) and group
+        ]
+        if not candidates:
+            continue
+        # 多个候选时取主体最长的一组（截断最少、匹配最精确）
+        key = max(candidates, key=lambda k: len(k[0]))
+        _, real_name = groups[key].pop(0)
+        row["filename"] = real_name
 
 
 def flatten_params_config(params_config: list[dict]) -> dict:
@@ -62,15 +102,19 @@ def build_params_sheet_rows(
     (build_output_file_name / next_available_filename)，避免两处实现漂移。
 
     如果压缩包已经打包完成 (archive_path 存在)，会改用包内的真实文件名
-    覆盖计算结果，因为真实打包时是基于当时的临时目录长度截断的，事后无法
-    100% 精确重现；条目数一致时用包内真实文件名，能保证与压缩包完全一致。
+    覆盖计算结果（apply_packaged_filenames 按名称结构匹配到对应行），
+    保证文件名列与压缩包内容完全一致。
     """
     rows = []
+    # 与每行对应的 (未截断名称主体, 扩展名)，用于和包内真实文件名做结构匹配
+    row_keys = []
     name_count_cache: dict = {}
 
     for item in results:
         params_config = json.loads(item.get("ParamsConfig", "[]"))
         output_file_name = build_output_file_name(params_config, dir)
+        # 传空目录得到（几乎）未截断的名称主体，包内名称必然是它的前缀
+        untruncated_name = build_output_file_name(params_config, "")
         flat_params = flatten_params_config(params_config)
 
         for output in item.get("list", []):
@@ -89,11 +133,11 @@ def build_params_sheet_rows(
             )
 
             rows.append({"filename": filename, **flat_params})
+            row_keys.append((untruncated_name, file_extension))
 
     packaged_filenames = read_packaged_filenames(archive_path)
-    if packaged_filenames and len(packaged_filenames) == len(rows):
-        for row, real_filename in zip(rows, packaged_filenames):
-            row["filename"] = real_filename
+    if packaged_filenames:
+        apply_packaged_filenames(rows, row_keys, packaged_filenames)
 
     return rows
 
